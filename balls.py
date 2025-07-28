@@ -87,4 +87,3 @@ if __name__ == "__main__":
             conn, addr = s.accept()
             thread = threading.Thread(target=handle_client, args=(conn, addr, args.log), daemon=True)
             thread.start()
-
