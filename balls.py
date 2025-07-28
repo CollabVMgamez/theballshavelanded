@@ -3,10 +3,10 @@ import threading
 import time
 import argparse
 import logging
+import os
 
-# ASCII art payload
-def get_balls():
-    return r"""
+# Default ASCII art
+DEFAULT_ART = r"""
          ______
       .-'      '-.
     .'            '.
@@ -27,16 +27,38 @@ def get_balls():
       LANDED
 """
 
+# Load custom ASCII from file if provided
+def get_balls(ascii_file=None):
+    if ascii_file:
+        print(f"[INFO] Attempting to load ASCII art from: {ascii_file}")
+        if not os.path.exists(ascii_file):
+            print(f"[ERROR] File not found: {ascii_file}")
+            return f"[ERROR LOADING ASCII FILE: File does not exist]"
+        try:
+            with open(ascii_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                print(f"[INFO] Loaded {len(content)} characters from ASCII file.")
+                return content
+        except Exception as e:
+            print(f"[ERROR] Failed to read ASCII file: {e}")
+            return f"[ERROR LOADING ASCII FILE: {e}]"
+    return DEFAULT_ART
+
 # Client handler
-def handle_client(conn, addr, log_enabled):
+def handle_client(conn, addr, log_enabled, ascii_file):
     if log_enabled:
         logging.info(f"Connection from {addr[0]}:{addr[1]}")
     try:
-        # Peek at incoming data to detect HTTP GET
-        data = conn.recv(1024, socket.MSG_PEEK)
+        conn.settimeout(1.0)  # avoid hanging on recv
+        try:
+            data = conn.recv(1024, socket.MSG_PEEK)
+        except socket.timeout:
+            data = b''
+
+        balls = get_balls(ascii_file)
         if data.startswith(b"GET "):
             # Respond with HTML page
-            balls_html = get_balls().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            balls_html = balls.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             html_body = f"<html><head><meta http-equiv=\"refresh\" content=\"1\"></head><body><pre>{balls_html}</pre></body></html>"
             response = (
                 "HTTP/1.1 200 OK\r\n"
@@ -50,21 +72,24 @@ def handle_client(conn, addr, log_enabled):
         else:
             # Raw TCP spam
             while True:
-                conn.sendall((get_balls() + "\n").encode())
+                conn.sendall((balls + "\n").encode())
                 time.sleep(1)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ERROR] Client error: {e}")
     finally:
         conn.close()
 
 # Main server
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="ASCII Balls TCP Server with optional logging and HTML support.")
+    parser = argparse.ArgumentParser(description="ASCII Balls TCP Server with optional logging, custom ASCII, and HTML support.")
     parser.add_argument(
         "--no-log", dest="log", action="store_false", help="Disable logging of client connections"
     )
     parser.add_argument(
         "--port", type=int, default=6969, help="Port to listen on (default: 6969)"
+    )
+    parser.add_argument(
+        "--ascii", type=str, default=None, help="Path to a custom ASCII text file"
     )
     args = parser.parse_args()
 
@@ -85,5 +110,6 @@ if __name__ == "__main__":
         print(f"[*] Listening on {HOST}:{PORT} (logging={'on' if args.log else 'off'})...")
         while True:
             conn, addr = s.accept()
-            thread = threading.Thread(target=handle_client, args=(conn, addr, args.log), daemon=True)
+            thread = threading.Thread(target=handle_client, args=(conn, addr, args.log, args.ascii), daemon=True)
             thread.start()
+
